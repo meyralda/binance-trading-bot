@@ -1,0 +1,300 @@
+# bot_guvenli.py
+# Simple autonomous monitoring bot for Binance spot detection.
+# No risky live trading by default. It logs the process and opens a browser dashboard.
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from datetime import datetime
+from typing import Dict, List, Optional
+
+import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
+from binance import Client
+
+load_dotenv()
+
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+BINANCE_USE_TESTNET = os.getenv("BINANCE_USE_TESTNET", "true").lower() == "true"
+
+SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "900"))
+POSITION_CHECK_SECONDS = int(os.getenv("POSITION_CHECK_SECONDS", "60"))
+
+ENABLE_LIVE_TRADING = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+ENABLE_PAPER_TRADING = os.getenv("ENABLE_PAPER_TRADING", "true").lower() == "true"
+
+
+def log_event(event_type: str, payload: Dict):
+    log_file = "bot_logs.jsonl"
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "type": event_type,
+        **payload,
+    }
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+class SafeBinanceClient:
+    def __init__(self):
+        self.client = Client(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=BINANCE_USE_TESTNET)
+
+    def get_klines(self, symbol: str, interval: str = "1m", limit: int = 100):
+        return self.client.get_klines(symbol=symbol, interval=interval, limit=limit)
+
+    def get_all_24h(self):
+        return self.client.get_ticker()
+
+    def get_price(self, symbol: str) -> float:
+        try:
+            return float(self.client.get_symbol_ticker(symbol=symbol)["price"])
+        except Exception:
+            return 0.0
+
+
+def ema(series: pd.Series, period: int) -> pd.Series:
+    return series.ewm(span=period, adjust=False).mean()
+
+
+def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(com=period - 1, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(com=period - 1, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    res = 100 - (100 / (1 + rs))
+    return res.fillna(50)
+
+
+def generate_signal(df: pd.DataFrame) -> Dict:
+    if df.empty or "close" not in df.columns:
+        return {"action": "HOLD", "confidence": 0.0, "reasons": ["No data"]}
+
+    close = pd.to_numeric(df["close"], errors="coerce")
+    ema_fast = ema(close, 9).iloc[-1]
+    ema_slow = ema(close, 21).iloc[-1]
+    rsi_value = float(rsi(close, 14).iloc[-1])
+    current = float(close.iloc[-1])
+    prev = float(close.iloc[-2]) if len(close) > 1 else current
+    momentum = ((current - prev) / prev) * 100 if prev else 0.0
+
+    bullish_score = 0
+    bearish_score = 0
+    reasons = []
+
+    if ema_fast > ema_slow:
+        bullish_score += 2
+        reasons.append("EMA bullish")
+    else:
+        bearish_score += 2
+        reasons.append("EMA bearish")
+
+    if 45 <= rsi_value <= 70:
+        bullish_score += 2
+        reasons.append("RSI healthy")
+    elif rsi_value < 35:
+        bullish_score += 1
+        reasons.append("RSI oversold")
+    elif rsi_value > 65:
+        bearish_score += 2
+        reasons.append("RSI overbought")
+    else:
+        bearish_score += 1
+        reasons.append("RSI weak")
+
+    if momentum > 0:
+        bullish_score += 1
+        reasons.append("Momentum positive")
+    elif momentum < 0:
+        bearish_score += 1
+        reasons.append("Momentum negative")
+
+    if bullish_score >= bearish_score + 3:
+        return {"action": "BUY", "confidence": round(min(0.95, 0.55 + (bullish_score - bearish_score) * 0.08), 3), "reasons": reasons[:5]}
+    if bearish_score >= bullish_score + 3:
+        return {"action": "SELL", "confidence": round(min(0.95, 0.55 + (bearish_score - bullish_score) * 0.08), 3), "reasons": reasons[:5]}
+    return {"action": "HOLD", "confidence": 0.0, "reasons": reasons[:5]}
+
+
+class SimpleBot:
+    def __init__(self):
+        self.client = SafeBinanceClient()
+        self.open_positions = {}
+
+    def scan_market(self) -> List[Dict]:
+        tickers = self.client.get_all_24h()
+        candidates = []
+        for item in tickers:
+            sym = item.get("symbol")
+            if not sym or not sym.endswith("USDT"):
+                continue
+            if "UP" in sym or "DOWN" in sym:
+                continue
+            try:
+                if float(item.get("quoteVolume", 0)) > 0:
+                    candidates.append(sym)
+            except Exception:
+                continue
+
+        candidates = sorted(candidates)[:12]
+        results = []
+        for symbol in candidates:
+            try:
+                candles = self.client.get_klines(symbol=symbol, interval="1m", limit=100)
+                if not candles:
+                    continue
+                df = pd.DataFrame(candles, columns=[
+                    "open_time","open","high","low","close","volume","close_time","quote_asset_volume",
+                    "number_of_trades","taker_buy_base_asset_volume","taker_buy_quote_asset_volume","ignore"
+                ])
+                for col in ["open", "high", "low", "close", "volume"]:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                signal = generate_signal(df)
+                if signal["action"] == "HOLD":
+                    continue
+                if signal["confidence"] < 0.6:
+                    continue
+                current_price = float(df["close"].iloc[-1])
+                results.append({
+                    "symbol": symbol,
+                    "price": current_price,
+                    "action": signal["action"],
+                    "confidence": signal["confidence"],
+                    "reasons": signal["reasons"],
+                })
+                log_event("SCAN_SIGNAL", {"symbol": symbol, "signal": signal})
+            except Exception as exc:
+                log_event("SCAN_ERROR", {"symbol": symbol, "error": str(exc)})
+                continue
+        return results
+
+    def open_safely(self, signal: Dict):
+        symbol = signal["symbol"]
+        if symbol in self.open_positions:
+            return
+        self.open_positions[symbol] = {
+            "symbol": symbol,
+            "side": "LONG" if signal["action"] == "BUY" else "SHORT",
+            "entry": signal["price"],
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": signal["action"],
+            "confidence": signal["confidence"],
+            "reasons": signal["reasons"],
+        }
+        log_event("POSITION_OPEN", self.open_positions[symbol])
+
+    def monitor_positions(self):
+        for symbol, pos in list(self.open_positions.items()):
+            current = self.client.get_price(symbol)
+            if current <= 0:
+                continue
+            if pos["side"] == "LONG":
+                stop = pos["entry"] * 0.985
+                take = pos["entry"] * 1.03
+                if current <= stop:
+                    log_event("POSITION_CLOSE", {"symbol": symbol, "reason": "STOP_LOSS", "price": current})
+                    del self.open_positions[symbol]
+                elif current >= take:
+                    log_event("POSITION_CLOSE", {"symbol": symbol, "reason": "TAKE_PROFIT", "price": current})
+                    del self.open_positions[symbol]
+            else:
+                stop = pos["entry"] * 1.015
+                take = pos["entry"] * 0.97
+                if current >= stop:
+                    log_event("POSITION_CLOSE", {"symbol": symbol, "reason": "STOP_LOSS", "price": current})
+                    del self.open_positions[symbol]
+                elif current <= take:
+                    log_event("POSITION_CLOSE", {"symbol": symbol, "reason": "TAKE_PROFIT", "price": current})
+                    del self.open_positions[symbol]
+
+
+bot = SimpleBot()
+
+
+# ------------------
+# Browser dashboard
+# ------------------
+
+st.set_page_config(page_title="Simple Bot Dashboard", page_icon="🤖", layout="wide")
+
+
+@st.cache_data
+
+def load_events(limit: int = 20):
+    events = []
+    path = "bot_logs.jsonl"
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[-limit:]:
+                try:
+                    events.append(json.loads(line))
+                except Exception:
+                    pass
+    return events
+
+
+st.title("🤖 Simple Binance Monitor")
+st.caption("No risky live trading by default. This is a safe monitoring and logging dashboard.")
+
+with st.sidebar:
+    st.header("Bot info")
+    st.write("Mode: safe monitoring")
+    st.write("Trade system: paper-safe")
+    st.write("Scan interval: 15 minutes")
+    st.write("Position check: 1 minute")
+    st.write("Live trading: disabled")
+
+if st.button("Run market scan"):
+    results = bot.scan_market()
+    st.subheader("Signal list")
+    if not results:
+        st.info("No strong signal found right now.")
+    else:
+        st.dataframe(results, use_container_width=True)
+        for result in results:
+            bot.open_safely(result)
+
+st.subheader("Open positions")
+for symbol, pos in bot.open_positions.items():
+    st.write(f"{symbol}: {pos['side']} | entry {pos['entry']} | confidence {pos['confidence']}")
+
+st.subheader("Recent events")
+events = load_events(20)
+if events:
+    st.dataframe([{"time": e.get("timestamp"), "type": e.get("type"), "payload": str(e)[:200]} for e in events], use_container_width=True)
+else:
+    st.info("No events yet. Hit Run market scan to start.")
+
+st.markdown("---")
+st.markdown("### Quick start")
+st.code("""pip install -r requirements.txt
+python bot_guvenli.py
+""")
+
+
+# ---------
+# background loop for monitoring
+# ---------
+
+def background_loop():
+    while True:
+        time.sleep(SCAN_INTERVAL_SECONDS)
+        latest = bot.scan_market()
+        for item in latest:
+            bot.open_safely(item)
+        bot.monitor_positions()
+
+
+if __name__ == "__main__":
+    # For simple use, the dashboard is the main entry point.
+    # If you want a background bot loop, run this script in a shell and keep it alive.
+    print("Ready. This file is meant to be run as a simple dashboard-based tool.")
+    print("Use: streamlit run bot_guvenli.py")
+
+
+# The Streamlit app will run when started via: streamlit run bot_guvenli.py
