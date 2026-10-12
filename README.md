@@ -1,2 +1,4 @@
-# binance-trading-bot
-Professional Binance trading bot with multi-parameter analysis, RSI, MACD, Bollinger Bands, support/resistance levels, and risk management
+python-binance>=1.0.22
+pandas>=2.0.0
+numpy>=1.26.0
+python-dotenv>=1.0.1
