@@ -166,10 +166,72 @@ BACKTEST_START_DATE = os.getenv("BACKTEST_START_DATE", "2023-01-01")
 BACKTEST_END_DATE = os.getenv("BACKTEST_END_DATE", "2024-01-01")
 BACKTEST_COMMISSION = float(os.getenv("BACKTEST_COMMISSION", "0.001"))
 
+# ===== WHALE/SMART MONEY TRACKING =====
+ENABLE_WHALE_TRACKING = env_bool("ENABLE_WHALE_TRACKING", True)
+WHALE_ADDRESS_LIST_FILE = os.getenv("WHALE_ADDRESS_LIST_FILE", "whale_addresses.txt")
+TRACK_WHALE_WALLETS = env_bool("TRACK_WHALE_WALLETS", True)
+WHALE_MIN_BALANCE_USDT = float(os.getenv("WHALE_MIN_BALANCE_USDT", "100000"))
+
+# ===== BLOCKCHAIN MONITORING =====
+USE_BLOCKCHAIN_SCANNER = env_bool("USE_BLOCKCHAIN_SCANNER", False)
+BLOCKCHAIN_API_KEY = os.getenv("BLOCKCHAIN_API_KEY", "")
+MONITOR_EXCHANGE_INFLOWS = env_bool("MONITOR_EXCHANGE_INFLOWS", True)
+MONITOR_EXCHANGE_OUTFLOWS = env_bool("MONITOR_EXCHANGE_OUTFLOWS", True)
+MONITOR_WHALE_MOVEMENTS = env_bool("MONITOR_WHALE_MOVEMENTS", True)
+
+# ===== TRACKED WALLETS & EXCHANGES =====
+# Major Exchange Cold/Hot Wallets
+BINANCE_WALLETS = os.getenv("BINANCE_WALLETS", "").split(",") if os.getenv("BINANCE_WALLETS") else []
+COINBASE_WALLETS = os.getenv("COINBASE_WALLETS", "").split(",") if os.getenv("COINBASE_WALLETS") else []
+KRAKEN_WALLETS = os.getenv("KRAKEN_WALLETS", "").split(",") if os.getenv("KRAKEN_WALLETS") else []
+BYBIT_WALLETS = os.getenv("BYBIT_WALLETS", "").split(",") if os.getenv("BYBIT_WALLETS") else []
+HUOBI_WALLETS = os.getenv("HUOBI_WALLETS", "").split(",") if os.getenv("HUOBI_WALLETS") else []
+OKEX_WALLETS = os.getenv("OKEX_WALLETS", "").split(",") if os.getenv("OKEX_WALLETS") else []
+GATE_WALLETS = os.getenv("GATE_WALLETS", "").split(",") if os.getenv("GATE_WALLETS") else []
+
+# Whale Wallets (Custom Tracked Addresses)
+WHALE_WALLETS = os.getenv("WHALE_WALLETS", "").split(",") if os.getenv("WHALE_WALLETS") else []
+WHALE_LABELS = os.getenv("WHALE_LABELS", "").split(",") if os.getenv("WHALE_LABELS") else []
+
+# ===== WHALE TRADING SIGNALS =====
+WHALE_MINIMUM_TRANSACTION_USDT = float(os.getenv("WHALE_MINIMUM_TRANSACTION_USDT", "50000"))
+WHALE_BUY_WEIGHT = float(os.getenv("WHALE_BUY_WEIGHT", "2.0"))
+WHALE_SELL_WEIGHT = float(os.getenv("WHALE_SELL_WEIGHT", "2.0"))
+WHALE_ACCUMULATION_THRESHOLD = int(os.getenv("WHALE_ACCUMULATION_THRESHOLD", "3"))  # number of buys in period
+WHALE_DISTRIBUTION_THRESHOLD = int(os.getenv("WHALE_DISTRIBUTION_THRESHOLD", "3"))  # number of sells in period
+WHALE_SIGNAL_LOOKBACK_HOURS = int(os.getenv("WHALE_SIGNAL_LOOKBACK_HOURS", "24"))
+
+# ===== EXCHANGE FLOW SIGNALS =====
+EXCHANGE_INFLOW_SENSITIVITY = float(os.getenv("EXCHANGE_INFLOW_SENSITIVITY", "1.0"))  # bearish signal weight
+EXCHANGE_OUTFLOW_SENSITIVITY = float(os.getenv("EXCHANGE_OUTFLOW_SENSITIVITY", "1.0"))  # bullish signal weight
+EXCHANGE_FLOW_LOOKBACK_HOURS = int(os.getenv("EXCHANGE_FLOW_LOOKBACK_HOURS", "6"))
+
+# ===== PROFIT TAKING / LOSS REALIZATION DETECTION =====
+DETECT_PROFIT_TAKING = env_bool("DETECT_PROFIT_TAKING", True)
+DETECT_LOSS_REALIZATION = env_bool("DETECT_LOSS_REALIZATION", True)
+LARGE_MOVEMENT_THRESHOLD_PERCENT = float(os.getenv("LARGE_MOVEMENT_THRESHOLD_PERCENT", "5.0"))
+
+# ===== PUMP & DUMP DETECTION =====
+ENABLE_PUMP_DUMP_DETECTION = env_bool("ENABLE_PUMP_DUMP_DETECTION", True)
+PUMP_DETECTION_PERIOD_MINUTES = int(os.getenv("PUMP_DETECTION_PERIOD_MINUTES", "30"))
+PUMP_THRESHOLD_PERCENT = float(os.getenv("PUMP_THRESHOLD_PERCENT", "15.0"))
+DUMP_DETECTION_PERIOD_MINUTES = int(os.getenv("DUMP_DETECTION_PERIOD_MINUTES", "30"))
+DUMP_THRESHOLD_PERCENT = float(os.getenv("DUMP_THRESHOLD_PERCENT", "15.0"))
+
 # ===== ADVANCED FEATURES =====
 USE_MACHINE_LEARNING = env_bool("USE_MACHINE_LEARNING", False)
 USE_SENTIMENT_ANALYSIS = env_bool("USE_SENTIMENT_ANALYSIS", False)
 ENABLE_AUTO_REBALANCE = env_bool("ENABLE_AUTO_REBALANCE", False)
+
+# ===== ETHERSCAN / BLOCKCHAIN API =====
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
+BLOCKSCAN_API_KEY = os.getenv("BLOCKSCAN_API_KEY", "")
+SOLSCAN_API_KEY = os.getenv("SOLSCAN_API_KEY", "")
+
+# ===== SMART CONTRACT MONITORING =====
+MONITOR_NEW_TOKENS = env_bool("MONITOR_NEW_TOKENS", False)
+MONITOR_LIQUIDITY_POOLS = env_bool("MONITOR_LIQUIDITY_POOLS", False)
+MONITOR_SMART_CONTRACT_CHANGES = env_bool("MONITOR_SMART_CONTRACT_CHANGES", False)
 
 
 def get_base_url() -> str:
@@ -184,9 +246,9 @@ def get_base_url() -> str:
 
 def print_config():
     """Print all active configuration for debugging"""
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print("ACTIVE TRADING BOT CONFIGURATION")
-    print("=" * 50)
+    print("=" * 60)
     print(f"Trading Mode: {TRADING_MODE}")
     print(f"Symbol: {SYMBOL} | Interval: {INTERVAL}")
     print(f"Use Testnet: {USE_TESTNET} | Use Futures: {USE_FUTURES}")
@@ -215,4 +277,17 @@ def print_config():
     print(f"  - Long Min Score: {LONG_MIN_SCORE}")
     print(f"  - Short Min Score: {SHORT_MIN_SCORE}")
     print(f"  - Min Signal Strength: {MIN_SIGNAL_STRENGTH}")
-    print("=" * 50 + "\n")
+    print(f"\nWhale Tracking:")
+    print(f"  - Enable: {ENABLE_WHALE_TRACKING}")
+    print(f"  - Min Balance: ${WHALE_MIN_BALANCE_USDT}")
+    print(f"  - Min Transaction: ${WHALE_MINIMUM_TRANSACTION_USDT}")
+    print(f"  - Tracked Whale Wallets: {len(WHALE_WALLETS)}")
+    print(f"  - Binance Addresses: {len(BINANCE_WALLETS)}")
+    print(f"  - Coinbase Addresses: {len(COINBASE_WALLETS)}")
+    print(f"  - Pump/Dump Detection: {ENABLE_PUMP_DUMP_DETECTION}")
+    print(f"\nBlockchain Monitoring:")
+    print(f"  - Use Scanner: {USE_BLOCKCHAIN_SCANNER}")
+    print(f"  - Monitor Exchange Inflows: {MONITOR_EXCHANGE_INFLOWS}")
+    print(f"  - Monitor Exchange Outflows: {MONITOR_EXCHANGE_OUTFLOWS}")
+    print(f"  - Monitor Whale Movements: {MONITOR_WHALE_MOVEMENTS}")
+    print("=" * 60 + "\n")
