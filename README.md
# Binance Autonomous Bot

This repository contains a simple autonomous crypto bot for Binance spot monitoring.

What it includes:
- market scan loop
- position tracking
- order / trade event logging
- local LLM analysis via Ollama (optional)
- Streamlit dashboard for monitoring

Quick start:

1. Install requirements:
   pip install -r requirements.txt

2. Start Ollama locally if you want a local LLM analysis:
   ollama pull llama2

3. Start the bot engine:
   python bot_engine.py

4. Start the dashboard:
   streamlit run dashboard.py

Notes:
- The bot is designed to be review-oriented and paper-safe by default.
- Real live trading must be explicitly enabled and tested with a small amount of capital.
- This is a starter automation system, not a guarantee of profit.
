@@ -1,0 +1,28 @@
+# Autonomous Binance trading bot configuration
+# Use this file to tune the internal scanning loop and execution logic.
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_KEY = os.getenv("BINANCE_API_KEY", "")
+API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+BASE_URL = os.getenv("BINANCE_BASE_URL", "https://api.binance.com")
+USE_TESTNET = os.getenv("BINANCE_USE_TESTNET", "false").lower() == "true"
+
+ENABLE_LIVE_TRADING = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+ENABLE_PAPER_TRADING = os.getenv("ENABLE_PAPER_TRADING", "true").lower() == "true"
+
+MARKET_SCAN_INTERVAL = int(os.getenv("MARKET_SCAN_INTERVAL", "900"))
+POSITION_CHECK_INTERVAL = int(os.getenv("POSITION_CHECK_INTERVAL", "60"))
+MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", "5"))
+MIN_SIGNAL_STRENGTH = float(os.getenv("MIN_SIGNAL_STRENGTH", "0.6"))
+MIN_POSITION_SIZE_USDT = float(os.getenv("MIN_POSITION_SIZE_USDT", "30"))
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "1.5"))
+TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", "3.0"))
+
+SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT")
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")

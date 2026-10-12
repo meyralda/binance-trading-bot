@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, List
+
+import pandas as pd
+import streamlit as st
+
+from bot_engine import BotEngine
+from trade_logger import TradeLogger
+
+st.set_page_config(page_title="Crypto Bot Dashboard", page_icon="🤖", layout="wide")
+
+
+@st.cache_data
+def load_recent_events(limit: int = 20):
+    logger = TradeLogger()
+    return logger.get_recent_events(limit)
+
+
+@st.cache_data
+def get_market_snapshot():
+    engine = BotEngine()
+    try:
+        signals = engine.scan_market()
+    except Exception:
+        signals = []
+    return signals
+
+
+st.title("🤖 Autonomous Crypto Bot Dashboard")
+st.caption("Local monitoring panel for the autonomous Binance scan and trade engine.")
+
+with st.sidebar:
+    st.header("Bot controls")
+    st.write("Mode: autonomous")
+    st.write("Monitoring: Binance spot pairs")
+    st.write("LLM: local Ollama")
+    st.write("Execution: paper mode by default")
+    st.button("Refresh snapshot", type="primary")
+
+signals = get_market_snapshot()
+if not signals:
+    st.warning("No actionable market signal found yet. The scanner is still running in the background.")
+else:
+    data = [{
+        "symbol": s["symbol"],
+        "price": s["price"],
+        "action": s["signal"]["action"],
+        "confidence": s["signal"]["confidence"],
+        "reasons": ", ".join(s["signal"]["reasons"]),
+    } for s in signals]
+    st.subheader("Live scan results")
+    st.dataframe(data, use_container_width=True)
+
+st.subheader("Recent trade events")
+events = load_recent_events(20)
+if not events:
+    st.info("No trade events recorded yet. Start the bot engine to generate logs.")
+else:
+    st.dataframe([{"timestamp": e["timestamp"], "type": e["type"], "payload": str(e["payload"])[:200]} for e in events], use_container_width=True)
+
+st.subheader("System notes")
+st.markdown(
+    """
+    - Fast loop checks open positions.
+    - Slow loop scans the market every 15 minutes.
+    - Local LLM is optional and only used when Ollama is running.
+    - The bot is autonomous but the default execution mode is safe and review-friendly.
+    """
+)
+
